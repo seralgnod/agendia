@@ -13,3 +13,8 @@ Time: 23:28
 Phone Number: +5583988807803
 Message: Olá! ✅ Seu agendamento para o serviço 'Consulta de Teste' com Dr. Fulano foi confirmado para o dia 15/06/2025 às 10:00.
 --------------------
+Date: 15/6/2025
+Time: 2:32
+Phone Number: +5583996230447
+Message: Olá! ✅ Seu agendamento para o serviço 'Manicure e Pedicure' com Salão Unhas de Ouro foi confirmado para o dia 16/06/2025 às 14:30.
+--------------------

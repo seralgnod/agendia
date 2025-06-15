@@ -20,7 +20,6 @@ def run_test_scenario():
     whatsapp_adapter = PyWhatKitAdapter()
     profissional_repo = SQLiteProfissionalRepositorio(session=db_session)
     
-    # Instancia o caso de uso com as implementações reais
     agendamento_use_case = RealizarAgendamentoUseCase(
         repositorio=profissional_repo,
         whatsapp_adapter=whatsapp_adapter
@@ -28,17 +27,25 @@ def run_test_scenario():
 
     # --- Preparação dos Dados (Arrange) ---
     print("2. Preparando dados iniciais...")
-    # Cria um profissional e o salva para que o caso de uso possa encontrá-lo
-    servico_teste = Servico(nome="Consulta de Teste", duracao_minutos=45)
+    
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # !!!!! DEFINA AQUI O NÚMERO DE WHATSAPP DO SEU NEGÓCIO           !!!!!
+    # !!!!! (O número que você escaneou com o QR Code do whatsapp-adapter) !!!!!
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    numero_do_negocio = "+5583988918448" # <-- MUDE AQUI!
+
+    servico_teste = Servico(nome="Manicure e Pedicure", duracao_minutos=90)
     id_profissional = uuid4()
     
+    # Criamos o profissional com o novo campo obrigatório
     profissional = Profissional(
         id=id_profissional,
-        nome="Dr. Fulano",
+        nome="Salão Unhas de Ouro",
+        telefone_whatsapp=numero_do_negocio, # <-- CAMPO ADICIONADO
         servicos_oferecidos=[servico_teste],
         horario_trabalho={
-            # O dia do agendamento (15/06/2025) é um Domingo (weekday() == 6)
-            6: (time(9, 0), time(12, 0)) 
+            # O dia do agendamento (16/06/2025) é uma Segunda-feira (weekday() == 0)
+            0: (time(9, 0), time(18, 0)) 
         }
     )
     # Salva o profissional no banco para o teste
@@ -50,15 +57,15 @@ def run_test_scenario():
     
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # !!!!! MUITO IMPORTANTE: ALTERE O NÚMERO ABAIXO PARA O SEU WHATSAPP !!!!!
-    # !!!!! O formato deve ser "+<codigo_do_pais><ddd><numero>"         !!!!!
+    # !!!!! PESSOAL, para onde a notificação será enviada.              !!!!!
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    numero_do_seu_whatsapp = "+5583988807803" # <-- MUDE AQUI!
+    numero_do_cliente_para_teste = "+5583996230447" # <-- MUDE AQUI!
 
     dados_do_agendamento = AgendamentoInput(
         profissional_id=id_profissional,
-        cliente_contato=numero_do_seu_whatsapp,
-        nome_servico="Consulta de Teste",
-        data_hora_inicio=datetime(2025, 6, 15, 10, 0) # Domingo, às 10:00
+        cliente_contato=numero_do_cliente_para_teste,
+        nome_servico="Manicure e Pedicure",
+        data_hora_inicio=datetime(2025, 6, 16, 14, 30) # Segunda-feira, às 14:30
     )
 
     # --- Execução do Caso de Uso ---
@@ -79,6 +86,8 @@ def run_test_scenario():
 
 
 if __name__ == "__main__":
-    # Cria as tabelas no banco de dados, se ainda não existirem
+    # Deleta e recria o banco de dados a cada execução para um teste limpo
+    print("Limpando e recriando o banco de dados para o teste...")
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     run_test_scenario()

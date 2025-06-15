@@ -21,12 +21,16 @@ client.on('message', async message => {
         return;
     }
     console.log(`\n--- Nova Mensagem ---`);
-    console.log(`De: ${message.from}`);
+    console.log(`De: ${message.from}`); // Quem enviou
+    console.log(`Para: ${message.to}`);   // Para quem foi enviada
     console.log(`Mensagem: ${message.body}`);
     console.log(`---------------------`);
 
+    // --- ALTERAÇÃO AQUI ---
+    // Adicionamos o 'recipient' ao payload
     const payload = {
         sender: message.from,
+        recipient: message.to, // O número que recebeu a mensagem
         text: message.body
     };
 
@@ -34,21 +38,17 @@ client.on('message', async message => {
         console.log(`[PASSO 1] Enviando para o webhook: ${PYTHON_WEBHOOK_URL}`);
         const response = await axios.post(PYTHON_WEBHOOK_URL, payload);
         console.log("[PASSO 2] Backend Python respondeu com sucesso.");
-        console.log("Dados recebidos do backend:", response.data); // LOG ADICIONADO
-
+        // ... (resto do código permanece o mesmo) ...
         if (response.data && response.data.reply) {
             const replyText = response.data.reply;
             console.log(`[PASSO 3] Preparando para enviar resposta ao cliente: "${replyText}"`);
-            
-            // MÉTODO ALTERNATIVO: Usando message.reply() que é mais direto
             await message.reply(replyText);
-            
             console.log("[PASSO 4] Resposta enviada com sucesso!");
         } else {
             console.error("[ERRO DE LÓGICA] O backend respondeu, mas não encontrou o campo 'reply' no JSON.");
         }
-
     } catch (error) {
+        // ... (bloco catch inalterado) ...
         console.error("[ERRO CRÍTICO] Falha na comunicação com o backend ou no envio da resposta.", error.message);
         await message.reply("Desculpe, meu cérebro (serviço principal) está temporariamente fora do ar. Tente novamente mais tarde.");
     }
