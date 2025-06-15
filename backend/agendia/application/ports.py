@@ -21,9 +21,15 @@ class IProfissionalRepositorio(ABC):
         """Busca um Profissional pelo seu número de WhatsApp."""
         pass
 
+    @abstractmethod
+    def listar_todos(self) -> list[Profissional]: # <-- NOVO MÉTODO ADICIONADO
+        """Retorna uma lista de todos os profissionais cadastrados."""
+        pass
+
+# ... resto do arquivo inalterado ...
 class IAgendamentoRepositorio(ABC):
     """Contrato que define os métodos para persistir dados da entidade Agendamento."""
-    pass # Pode ser expandido no futuro
+    pass 
 
 class IWhatsAppAdapter(ABC):
     """Contrato para qualquer serviço de envio de mensagens do WhatsApp."""

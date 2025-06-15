@@ -1,95 +1,96 @@
 import uvicorn
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-import re
+from uuid import UUID
+from typing import List # <-- IMPORTAR List
 
-# --- Importações da nossa aplicação ---
+# ... (outros imports inalterados) ...
+from agendia.config import settings
 from agendia.infrastructure.database import SessionLocal, Base, engine
+from agendia.infrastructure.whatsapp_adapter import PyWhatKitAdapter
 from agendia.infrastructure.repositories import SQLiteProfissionalRepositorio
-from agendia.application.ports import IProfissionalRepositorio
+from agendia.application.ports import IProfissionalRepositorio, IWhatsAppAdapter
 from agendia.application.use_cases import (
-    ConsultarAgendaUseCase, ConsultaAgendaInput, ProfissionalNaoEncontradoError
+    RealizarAgendamentoUseCase, AgendamentoInput, ProfissionalNaoEncontradoError
 )
+from pydantic import BaseModel
+from typing import Optional
 
-# --- Criação das Tabelas ---
+class ProfissionalCreate(BaseModel):
+    nome: str
+    telefone_whatsapp: str
+
+class ProfissionalPublic(BaseModel):
+    id: UUID
+    nome: str
+    telefone_whatsapp: str
+    class Config:
+        from_attributes = True
+
+# ... (código de setup inalterado) ...
 Base.metadata.create_all(bind=engine)
-
-# --- Instância do FastAPI ---
 app = FastAPI(title="AgendIA API", version="0.1.0")
-
-# =============================================================================
-# Modelos de Dados para a API (Entrada/Saída)
-# =============================================================================
-class WhatsappMessageIn(BaseModel):
-    """Modelo para a mensagem recebida do webhook do Node.js."""
-    sender: str
-    text: str
-
-class WebhookResponse(BaseModel):
-    """Modelo para a resposta que nosso webhook enviará de volta ao adaptador."""
-    reply: str
-
-# =============================================================================
-# INJEÇÃO DE DEPENDÊNCIA (Dependency Injection)
-# =============================================================================
 def get_db_session():
+    # ...
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
 def get_profissional_repositorio(db: Session = Depends(get_db_session)) -> IProfissionalRepositorio:
     return SQLiteProfissionalRepositorio(session=db)
+def get_whatsapp_adapter() -> IWhatsAppAdapter:
+    return PyWhatKitAdapter()
 
-# =============================================================================
-# ENDPOINTS DA API
-# =============================================================================
+
 @app.get("/")
 def read_root():
-    return {"message": "API do AgendIA no ar. Webhook em /webhook/whatsapp"}
+    return {"message": "Bem-vindo à API do AgendIA!"}
 
-@app.post("/webhook/whatsapp", response_model=WebhookResponse)
-def whatsapp_webhook(
-    payload: WhatsappMessageIn,
+# --- NOVO ENDPOINT ADICIONADO ---
+@app.get("/profissionais/", response_model=List[ProfissionalPublic])
+def listar_todos_os_profissionais(
     repo: IProfissionalRepositorio = Depends(get_profissional_repositorio)
 ):
     """
-    Recebe mensagens do adaptador Node.js, processa o comando e retorna
-    uma resposta para ser enviada de volta ao usuário.
+    Retorna uma lista de todos os profissionais cadastrados no sistema.
     """
-    print(f"Webhook recebido de {payload.sender} com texto: '{payload.text}'")
-    
-    resposta_texto = ""
-    mensagem_cliente = payload.text.lower()
+    return repo.listar_todos()
 
+
+@app.post("/profissionais/", response_model=ProfissionalPublic, status_code=status.HTTP_201_CREATED)
+def criar_profissional(
+    profissional_in: ProfissionalCreate,
+    repo: IProfissionalRepositorio = Depends(get_profissional_repositorio)
+):
+    # ... (código do criar_profissional inalterado) ...
+    print(f"Recebida requisição para criar profissional: {profissional_in.nome}")
+    db_profissional = repo.buscar_por_telefone(profissional_in.telefone_whatsapp)
+    if db_profissional:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Um profissional com este número de WhatsApp já existe.")
+    from agendia.core.domain import Profissional
+    novo_profissional = Profissional(**profissional_in.model_dump())
+    repo.salvar(novo_profissional)
+    print(f"Profissional '{novo_profissional.nome}' criado com sucesso.")
+    return novo_profissional
+
+@app.post("/agendamentos/", status_code=status.HTTP_201_CREATED)
+def criar_agendamento(
+    input_data: AgendamentoInput,
+    repo: IProfissionalRepositorio = Depends(get_profissional_repositorio),
+    adapter: IWhatsAppAdapter = Depends(get_whatsapp_adapter)
+):
+    # ... (código do criar_agendamento inalterado) ...
     try:
-        # --- LÓGICA DE PROCESSAMENTO DE COMANDOS ---
-        # Por enquanto, uma lógica simples baseada em palavras-chave.
-        
-        if "agenda" in mensagem_cliente:
-            # Identifica o profissional associado ao número de WhatsApp do remetente
-            # A função buscar_por_contato é um placeholder, precisa ser implementada
-            # profissional = repo.buscar_por_contato(payload.sender)
-            # if profissional:
-            #     # Lógica para chamar o ConsultarAgendaUseCase
-            #     resposta_texto = "Aqui está sua agenda de hoje..."
-            # else:
-            #     resposta_texto = "Não encontrei seu cadastro."
-            
-            # Resposta temporária para teste
-            resposta_texto = "Entendi que você quer ver a agenda! Esta função será implementada em breve. agenda"
-
-        elif "marcar" in mensagem_cliente or "agendar" in mensagem_cliente:
-            resposta_texto = "Entendi que você quer um novo agendamento! Em breve poderemos fazer isso por aqui."
-        
-        else:
-            resposta_texto = "Olá! Sou o AgendIA. Ainda estou em desenvolvimento. Tente comandos como 'ver agenda' ou 'agendar'."
-
+        use_case = RealizarAgendamentoUseCase(repositorio=repo, whatsapp_adapter=adapter)
+        agendamento_criado = use_case.executar(input_data)
+        return {"id": agendamento_criado.id, "cliente_contato": agendamento_criado.cliente_contato, "data_hora_inicio": agendamento_criado.data_hora_inicio.isoformat()}
+    except ProfissionalNaoEncontradoError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        print(f"ERRO ao processar comando: {e}")
-        resposta_texto = "Desculpe, ocorreu um erro interno e não consegui processar sua mensagem."
+        raise HTTPException(status_code=500, detail=f"Ocorreu um erro inesperado: {e}")
 
-    # Retorna a resposta que o adaptador Node.js irá enviar ao usuário
-    return WebhookResponse(reply=resposta_texto)
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
