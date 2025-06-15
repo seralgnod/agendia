@@ -1,31 +1,38 @@
 import uvicorn
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from uuid import UUID
+from pydantic import BaseModel
+import re
 
 # --- Importações da nossa aplicação ---
-from agendia.config import settings
 from agendia.infrastructure.database import SessionLocal, Base, engine
-from agendia.infrastructure.whatsapp_adapter import PyWhatKitAdapter # Usaremos este como placeholder por enquanto
 from agendia.infrastructure.repositories import SQLiteProfissionalRepositorio
-from agendia.application.ports import IProfissionalRepositorio, IWhatsAppAdapter
+from agendia.application.ports import IProfissionalRepositorio
 from agendia.application.use_cases import (
-    RealizarAgendamentoUseCase, AgendamentoInput, ProfissionalNaoEncontradoError, ValueError
+    ConsultarAgendaUseCase, ConsultaAgendaInput, ProfissionalNaoEncontradoError
 )
 
 # --- Criação das Tabelas ---
 Base.metadata.create_all(bind=engine)
 
 # --- Instância do FastAPI ---
-app = FastAPI(
-    title="AgendIA API",
-    version="0.1.0",
-)
+app = FastAPI(title="AgendIA API", version="0.1.0")
+
+# =============================================================================
+# Modelos de Dados para a API (Entrada/Saída)
+# =============================================================================
+class WhatsappMessageIn(BaseModel):
+    """Modelo para a mensagem recebida do webhook do Node.js."""
+    sender: str
+    text: str
+
+class WebhookResponse(BaseModel):
+    """Modelo para a resposta que nosso webhook enviará de volta ao adaptador."""
+    reply: str
 
 # =============================================================================
 # INJEÇÃO DE DEPENDÊNCIA (Dependency Injection)
 # =============================================================================
-
 def get_db_session():
     db = SessionLocal()
     try:
@@ -36,48 +43,53 @@ def get_db_session():
 def get_profissional_repositorio(db: Session = Depends(get_db_session)) -> IProfissionalRepositorio:
     return SQLiteProfissionalRepositorio(session=db)
 
-# Por enquanto, nosso adaptador de notificação será o PyWhatKit. 
-# Podemos trocá-lo facilmente no futuro sem alterar o resto do código.
-def get_whatsapp_adapter() -> IWhatsAppAdapter:
-    return PyWhatKitAdapter()
-
 # =============================================================================
-# ENDPOINTS DA API (CAMADA DE APRESENTAÇÃO)
+# ENDPOINTS DA API
 # =============================================================================
-
 @app.get("/")
 def read_root():
-    return {"message": "Bem-vindo à API do AgendIA!"}
+    return {"message": "API do AgendIA no ar. Webhook em /webhook/whatsapp"}
 
-@app.post("/agendamentos/", status_code=201)
-def criar_agendamento(
-    input_data: AgendamentoInput,
-    # Injeta nossas dependências na rota
-    repo: IProfissionalRepositorio = Depends(get_profissional_repositorio),
-    adapter: IWhatsAppAdapter = Depends(get_whatsapp_adapter)
+@app.post("/webhook/whatsapp", response_model=WebhookResponse)
+def whatsapp_webhook(
+    payload: WhatsappMessageIn,
+    repo: IProfissionalRepositorio = Depends(get_profissional_repositorio)
 ):
     """
-    Endpoint para criar um novo agendamento.
-    Recebe os dados do agendamento e executa o caso de uso correspondente.
+    Recebe mensagens do adaptador Node.js, processa o comando e retorna
+    uma resposta para ser enviada de volta ao usuário.
     """
-    try:
-        # Instancia e executa o caso de uso
-        use_case = RealizarAgendamentoUseCase(repositorio=repo, whatsapp_adapter=adapter)
-        agendamento_criado = use_case.executar(input_data)
-        
-        # Retorna uma representação do agendamento criado (simplificado aqui)
-        return {
-            "id": agendamento_criado.id,
-            "cliente_contato": agendamento_criado.cliente_contato,
-            "data_hora_inicio": agendamento_criado.data_hora_inicio.isoformat()
-        }
-    except ProfissionalNaoEncontradoError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e: # Erro de horário indisponível do nosso domínio
-        raise HTTPException(status_code=409, detail=str(e)) # 409 Conflict
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ocorreu um erro inesperado: {e}")
+    print(f"Webhook recebido de {payload.sender} com texto: '{payload.text}'")
+    
+    resposta_texto = ""
+    mensagem_cliente = payload.text.lower()
 
-# --- Ponto de entrada ---
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    try:
+        # --- LÓGICA DE PROCESSAMENTO DE COMANDOS ---
+        # Por enquanto, uma lógica simples baseada em palavras-chave.
+        
+        if "agenda" in mensagem_cliente:
+            # Identifica o profissional associado ao número de WhatsApp do remetente
+            # A função buscar_por_contato é um placeholder, precisa ser implementada
+            # profissional = repo.buscar_por_contato(payload.sender)
+            # if profissional:
+            #     # Lógica para chamar o ConsultarAgendaUseCase
+            #     resposta_texto = "Aqui está sua agenda de hoje..."
+            # else:
+            #     resposta_texto = "Não encontrei seu cadastro."
+            
+            # Resposta temporária para teste
+            resposta_texto = "Entendi que você quer ver a agenda! Esta função será implementada em breve. agenda"
+
+        elif "marcar" in mensagem_cliente or "agendar" in mensagem_cliente:
+            resposta_texto = "Entendi que você quer um novo agendamento! Em breve poderemos fazer isso por aqui."
+        
+        else:
+            resposta_texto = "Olá! Sou o AgendIA. Ainda estou em desenvolvimento. Tente comandos como 'ver agenda' ou 'agendar'."
+
+    except Exception as e:
+        print(f"ERRO ao processar comando: {e}")
+        resposta_texto = "Desculpe, ocorreu um erro interno e não consegui processar sua mensagem."
+
+    # Retorna a resposta que o adaptador Node.js irá enviar ao usuário
+    return WebhookResponse(reply=resposta_texto)

@@ -4,57 +4,54 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 
-// URL do webhook do nosso backend Python
-// Por enquanto, ele ainda não existe, mas vamos apontar para onde ele estará.
 const PYTHON_WEBHOOK_URL = 'http://localhost:8000/webhook/whatsapp';
+const client = new Client({ authStrategy: new LocalAuth() });
 
-// Usamos LocalAuth para salvar a sessão e não precisar escanear o QR Code toda vez.
-const client = new Client({
-    authStrategy: new LocalAuth()
-});
-
-// Evento 1: Gerar o QR Code
-// Este evento é disparado quando o cliente precisa de autenticação.
 client.on('qr', qr => {
     console.log("QR Code recebido! Escaneie com seu celular.");
     qrcode.generate(qr, { small: true });
 });
 
-// Evento 2: Cliente Autenticado e Pronto
-// Disparado quando a conexão com o WhatsApp é bem-sucedida.
 client.on('ready', () => {
     console.log('Cliente do WhatsApp está pronto e conectado!');
 });
 
-// Evento 3: Mensagem Recebida (O mais importante!)
-// Disparado toda vez que uma nova mensagem chega.
 client.on('message', async message => {
-    // Ignora mensagens que nós mesmos enviamos
     if (message.fromMe) {
         return;
     }
-
     console.log(`\n--- Nova Mensagem ---`);
-    console.log(`De: ${message.from}`); // Número do remetente
+    console.log(`De: ${message.from}`);
     console.log(`Mensagem: ${message.body}`);
     console.log(`---------------------`);
 
-    // Prepara os dados para enviar ao backend Python
     const payload = {
         sender: message.from,
         text: message.body
     };
 
-    // Tenta enviar a mensagem para o nosso backend via webhook
     try {
-        console.log(`Enviando para o webhook: ${PYTHON_WEBHOOK_URL}`);
-        await axios.post(PYTHON_WEBHOOK_URL, payload);
-        console.log("Dados enviados para o backend Python com sucesso.");
+        console.log(`[PASSO 1] Enviando para o webhook: ${PYTHON_WEBHOOK_URL}`);
+        const response = await axios.post(PYTHON_WEBHOOK_URL, payload);
+        console.log("[PASSO 2] Backend Python respondeu com sucesso.");
+        console.log("Dados recebidos do backend:", response.data); // LOG ADICIONADO
+
+        if (response.data && response.data.reply) {
+            const replyText = response.data.reply;
+            console.log(`[PASSO 3] Preparando para enviar resposta ao cliente: "${replyText}"`);
+            
+            // MÉTODO ALTERNATIVO: Usando message.reply() que é mais direto
+            await message.reply(replyText);
+            
+            console.log("[PASSO 4] Resposta enviada com sucesso!");
+        } else {
+            console.error("[ERRO DE LÓGICA] O backend respondeu, mas não encontrou o campo 'reply' no JSON.");
+        }
+
     } catch (error) {
-        console.error("ERRO: Falha ao enviar dados para o backend Python.", error.message);
+        console.error("[ERRO CRÍTICO] Falha na comunicação com o backend ou no envio da resposta.", error.message);
+        await message.reply("Desculpe, meu cérebro (serviço principal) está temporariamente fora do ar. Tente novamente mais tarde.");
     }
 });
 
-
-// Inicia o cliente
 client.initialize();
