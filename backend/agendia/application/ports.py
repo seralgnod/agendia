@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
+from datetime import datetime
 
 from agendia.core.domain import Profissional, Agendamento
 
-# =============================================================================
-# INTERFACES DOS REPOSITÓRIOS (PORTAS)
-# =============================================================================
+# ... (IProfissionalRepositorio e IAgendamentoRepositorio permanecem os mesmos) ...
 
 class IProfissionalRepositorio(ABC):
     """
@@ -36,15 +35,22 @@ class IAgendamentoRepositorio(ABC):
     """
     Interface (Contrato) que define os métodos para persistir dados
     da entidade Agendamento.
-    
-    Nota: No nosso design, os agendamentos são gerenciados através da
-    entidade Profissional (Raiz de Agregação), então a maioria das
-    operações pode ocorrer através do IProfissionalRepositorio.
-    Esta interface pode ser expandida se precisarmos de buscas diretas
-    em agendamentos.
     """
 
     @abstractmethod
     def buscar_proximos_agendamentos(self, data_limite: "datetime") -> list[Agendamento]:
         """Busca todos os agendamentos até uma data/hora específica, para enviar lembretes."""
+        pass
+
+# --- NOVA INTERFACE ---
+class IWhatsAppAdapter(ABC):
+    """
+    Interface (Contrato) para qualquer serviço de envio de mensagens do WhatsApp.
+    """
+    
+    @abstractmethod
+    def enviar_texto(self, numero_destino: str, texto: str) -> None:
+        """
+        Envia uma mensagem de texto para um número de destino.
+        """
         pass
